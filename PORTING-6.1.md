@@ -173,33 +173,22 @@ if (folio_test_large(folio)) {
 3. `split_folio_to_list()` 之后原来的 `memcomp_ctx` 还有效吗？
 4. 若改成"reserve 之前就拆"或直接 `activate_locked`，代价是什么？
 
-## 6. 参考实现：5.10 上跑得通的版本
+## 6. 关于异步压缩（上游 0008）——第一版不做
 
-从一加 Ace2（5.10.236，带 memcomp）的 boot Image 里用 `scripts/extract-ikconfig`
-抽出的完整 config：
+0008 那 727 行异步批量压缩依赖 `crypto_alloc_acomp(..., CRYPTO_ALG_ASYNC, ...)`，
+也就是需要一个**异步压缩器**。这棵树里的事实是：
 
-```
-CONFIG_MEMCOMP=y
-CONFIG_MEMCOMP_DEFAULT_COMPRESSOR="zstd"
-# CONFIG_ZRAM is not set
-# CONFIG_ZSWAP is not set
-CONFIG_ZSMALLOC=y
-CONFIG_CRYPTO_ACOMP2=y      ← 只有 acomp 框架
-CONFIG_CRYPTO_ZSTD=y        ← 只有 scomp（同步）
-CONFIG_SWAP=y
-CONFIG_LRU_GEN=y
-```
+- `crypto/zstd.c` 只注册 scomp（同步，`zstd-scomp`），全树唯一的 acomp 提供者是
+  `drivers/crypto/hisilicon/zip/`（海思硬件，与本平台无关）
+- `CONFIG_CRYPTO_ACOMP2=y` 只是框架，没有算法实现
 
-**它没有任何 acomp 驱动，纯同步路径，不崩。** 两条推论：
+结果就是 `memcomp_async_get()` 返回 NULL，整条异步路径直接退化回同步压缩，
+等于白移植。所以第一版不做它是正确的判断，不是砍功能。
 
-1. 上游 0008 那 727 行异步补丁**不是必需项**，而且在 Android GKI 内核上大概率
-   整个失效——`memcomp_async_get()` 拿不到 acomp 就返回 NULL，静默退化成同步。
-   第一版不做它是正确的。
-2. 崩溃必须在 6.1 移植本身找。
-
-补充：6.1 连 `crypto_alloc_scomp()` 都没有（`include/crypto/internal/scompress.h`
-只有 `crypto_register_scomp()`），将来若真要做异步，只能用
-`crypto_alloc_comp("zstd", 0, 0)` + 私有 workqueue，每个 batch 独占一个 tfm。
+另外，6.1 连 `crypto_alloc_scomp()` 都没有
+（`include/crypto/internal/scompress.h` 只有 `crypto_register_scomp()`）。
+将来若确实要做异步，只能走 `crypto_alloc_comp("zstd", 0, 0)` + 私有 workqueue，
+每个 batch 独占一个 tfm（comp 的 tfm ctx 不可重入）。
 
 ## 7. 下一步（P4 收尾）
 
@@ -241,8 +230,8 @@ CONFIG_LRU_GEN=y
 
 ## 10. 这项工作的定位
 
-上游团队不做 6.1（他们只维护 6.12 主线）。5.10 有一加 Ace2 的移植。
-**6.1 GKI 这一档目前没有公开实现**，而 Android 14/15/16/17 的厂商内核都在这一档。
+上游目前只面向 6.12 基线。**6.1 GKI 这一档没有公开实现**，
+而 Android 14/15/16/17 的厂商内核都在这一档。
 
 所以这是一条独立维护的分叉：不为"能被上游 review"去凑形状，
 以"在 SM8650 + ColorOS 17 上稳定"为唯一验收标准。

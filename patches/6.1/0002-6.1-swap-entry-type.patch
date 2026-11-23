@@ -1,6 +1,36 @@
---- a/include/linux/swap.h	2026-10-30 17:27:56.000000000 +0800
-+++ b/include/linux/swap.h	2026-11-24 00:19:28.541871708 +0800
-@@ -69,7 +69,8 @@
+From 3ae8c06c8413f99b56da7b25a9a6cd6b422a7217 Mon Sep 17 00:00:00 2001
+From: ltcdz5 <ltcdz5@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 02:48:18 +0800
+Subject: [PATCH] swap: reserve a swap entry type for memcomp
+
+memcomp keeps anonymous pages as compressed payloads and stores a 32-bit
+token in the PTE, encoded as a swap entry.  Give it a type of its own so it
+cannot collide with real swap devices or with the other reserved entry types
+(hwpoison, migration, device private, pte marker, swapin error).
+
+MAX_SWAPFILES is reduced by the same amount, so the total number of types
+still fits in SWP_TYPE_BITS.
+
+Signed-off-by: ltcdz5 <ltcdz5@users.noreply.github.com>
+---
+ include/linux/swap.h    | 15 ++++++++++++---
+ include/linux/swapops.h | 22 ++++++++++++++++++++++
+ 2 files changed, 34 insertions(+), 3 deletions(-)
+
+diff --git a/include/linux/swap.h b/include/linux/swap.h
+index 4366c77..fd5973f 100644
+--- a/include/linux/swap.h
++++ b/include/linux/swap.h
+@@ -60,7 +60,7 @@ static inline int current_is_kswapd(void)
+ #define SWP_SWAPIN_ERROR_NUM 1
+ #define SWP_SWAPIN_ERROR     (MAX_SWAPFILES + SWP_HWPOISON_NUM + \
+ 			     SWP_MIGRATION_NUM + SWP_DEVICE_NUM + \
+-			     SWP_PTE_MARKER_NUM)
++			     SWP_PTE_MARKER_NUM + SWP_MEMCOMP_NUM)
+ /*
+  * PTE markers are used to persist information onto PTEs that are mapped with
+  * file-backed memories.  As its name "PTE" hints, it should only be applied to
+@@ -69,7 +69,8 @@ static inline int current_is_kswapd(void)
  #ifdef CONFIG_PTE_MARKER
  #define SWP_PTE_MARKER_NUM 1
  #define SWP_PTE_MARKER     (MAX_SWAPFILES + SWP_HWPOISON_NUM + \
@@ -10,7 +40,7 @@
  #else
  #define SWP_PTE_MARKER_NUM 0
  #endif
-@@ -96,6 +97,14 @@
+@@ -96,6 +97,14 @@ static inline int current_is_kswapd(void)
  #define SWP_DEVICE_NUM 0
  #endif
  
@@ -25,7 +55,7 @@
  /*
   * Page migration support.
   *
-@@ -126,7 +135,7 @@
+@@ -126,7 +135,7 @@ static inline int current_is_kswapd(void)
  
  #define MAX_SWAPFILES \
  	((1 << MAX_SWAPFILES_SHIFT) - SWP_DEVICE_NUM - \
@@ -34,9 +64,11 @@
  	SWP_PTE_MARKER_NUM - SWP_SWAPIN_ERROR_NUM)
  
  /*
---- a/include/linux/swapops.h	2026-10-30 17:27:56.000000000 +0800
-+++ b/include/linux/swapops.h	2026-11-24 00:19:28.542008024 +0800
-@@ -109,6 +109,28 @@
+diff --git a/include/linux/swapops.h b/include/linux/swapops.h
+index 1f59f9e..e9d1434 100644
+--- a/include/linux/swapops.h
++++ b/include/linux/swapops.h
+@@ -109,6 +109,28 @@ static inline pgoff_t swp_offset(swp_entry_t entry)
  	return entry.val & SWP_OFFSET_MASK;
  }
  
@@ -65,3 +97,6 @@
  /*
   * This should only be called upon a pfn swap entry to get the PFN stored
   * in the swap entry.  Please refers to is_pfn_swap_entry() for definition
+-- 
+2.43.0
+
